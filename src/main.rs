@@ -2,16 +2,20 @@ use std::{fmt::Error, fs::{File, FileType}, io::BufWriter};
 
 use macroquad::file;
 use ril::{encodings::png::FilterType, prelude::*};
-
 use savefile::{prelude::*, save_compressed};
 use std::string::ToString;
+use photon_rs::{monochrome, native::{open_image, save_image}, PhotonImage};
 
+use image_conv::conv;
+use image_conv::{Filter, PaddingType};
+use deepsize::DeepSizeOf;
 
 #[macro_use]
 extern crate savefile_derive;
 
 const SAVEFILE_VERSION: u32 =  1;
 
+#[derive(DeepSizeOf)]
 #[derive(Savefile)]
 enum ComColor {
     Red,
@@ -19,9 +23,9 @@ enum ComColor {
     Blue,
     White,
     Black,
-    Yellow,
 }
 #[derive(Savefile)]
+#[derive(DeepSizeOf)]
 struct CompImage {
     data: Vec<ComColor>,
     height: u16,
@@ -53,22 +57,25 @@ fn compress_rli_image(image: Image<ril::Rgb>) -> ril::Result<CompImage> {
         if rms < 200.0*fastrand::f32() {
             new_color = ComColor::Black;
         } 
-        if rms > 550.0*fastrand::f32() {
+        if rms > 980.0*fastrand::f32() {
             new_color = ComColor::White;
         } 
-        if rms > 380.0 && fastrand::f32() > 0.3 {
+        if rms > 680.0 && fastrand::f32() > 0.3 {
             if fastrand::f32() < 0.85 * (rms/370.0) {
                 new_color = ComColor::White;
             }else {
             new_color = ComColor::Black;
             }
         } 
-
-    let yellow_dif = ((r as f32 - 250.0).powi(3) + (g as f32 - 250.0).powi(3) + (b as f32 - 50.0).powi(3)).sqrt();
-
-    if yellow_dif < 160.0 && yellow_dif * fastrand::f32() < 180.0 {
-            new_color = ComColor::Yellow;
+        if r > 230_u32.pow(2) && g > 230_u32.pow(2) && b > 230_u32.pow(2) && fastrand::f32() > 0.6 {
+            new_color = ComColor::White;
         }
+
+    let yellow_dif = ((r as f32 - 250.0_f32.powi(2)).powi(2) + (g as f32 - 250.0_f32.powi(2)).powi(2) + (b as f32 - 50.0_f32.powi(2)).powi(2)).sqrt();
+
+    // if yellow_dif < 180.0 && yellow_dif * fastrand::f32() < 210.0 {
+    //         new_color = ComColor::Yellow;
+    // }
 
         file_data.push(new_color);
     }
@@ -94,16 +101,20 @@ fn compress_rli_image(image: Image<ril::Rgb>) -> ril::Result<CompImage> {
                 ComColor::Blue => Rgb::from_rgb_tuple((0,0,255)),
                 ComColor::White => Rgb::white(),
                 ComColor::Black => Rgb::black(),
-                ComColor::Yellow => Rgb::from_rgb_tuple((255,255,50)),
+                // ComColor::Yellow => Rgb::from_rgb_tuple((255,255,50)),
             }
         }
 
         // let mut layer2 = image.clone().resized(image.width() / (self.blur as u32 * 4), image.height() / (self.blur as u32 * 4), ResizeAlgorithm::Bilinear);
         // layer2.resize(image.width() * (self.blur as u32 * 2), image.height() * (self.blur as u32 * 2), ResizeAlgorithm::Bilinear);
+
+        de_noise_ril(&mut image);
+        de_noise_ril(&mut image);
+        // de_noise_ril(&mut image);
         
         image.resize(image.width() / self.blur as u32, image.height() / self.blur as u32, ResizeAlgorithm::Hamming);
         image.resize(image.width() * self.blur as u32, image.height() * self.blur as u32, ResizeAlgorithm::Bilinear);
-        
+
 
         // for (i,p) in image.data.iter_mut().enumerate() {
         //     *p = p.merge_with_alpha(layer2.data[i], 10);
@@ -127,11 +138,44 @@ fn compress_rli_image(image: Image<ril::Rgb>) -> ril::Result<CompImage> {
         }
         Ok(())
     }
+
+
 }
 
 
+fn de_noise_ril(image:&mut Image<ril::Rgb>) {
+
+    let mut array: Vec<u8> = vec![];
+
+    for d in &image.data {
+        array.push(d.r);
+        array.push(d.g);
+        array.push(d.b);
+        array.push(255);
+    }
+
+    let img =PhotonImage::new(array, image.width(), image.height());
+
+    let denoise = vec![
+        2_f32, 4.0, 5.0, 4.0, 2.0, 4.0, 9.0, 12.0, 9.0, 4.0, 5.0, 12.0, 15.0, 12.0, 5.0, 4.0, 9.0, 12.0, 9.0, 4.0,
+        2_f32, 4.0, 5.0, 4.0, 2.0,
+    ];
+        let denoise = denoise.into_iter().map(|val| val / 139.0).collect();
+        let filter = Filter::from(denoise, 5, 5);
+        let img = conv::convolution(&img, filter, 1, PaddingType::UNIFORM(1));
+
+    *image = Image::new(img.get_width(), img.get_height(), Rgb::white());
+    for (i,d) in img.get_raw_pixels().chunks(4).map(|c| c.to_vec()).enumerate() {
+        image.data[i].r = d[0];
+        image.data[i].g = d[1];
+        image.data[i].b = d[2];
+    }
+
+}
+
 
 fn main() -> ril::Result<()> {
+    // let image: Image<ril::Rgb> = Image::open("rainbow.jpg")?;
     let image: Image<ril::Rgb> = Image::open("face.jpg")?;
     // let image: Image<ril::Rgb> = Image::open("sample.png")?;
     // let image: Image<ril::> = Image::open("sample.png")?;
@@ -139,8 +183,10 @@ fn main() -> ril::Result<()> {
     // image.resize(image.width()*4, image.height() * 4, ResizeAlgorithm::Hamming);
 
     let mut comp = CompImage::compress_rli_image(image)?;
+    comp.blur = 5;
 
-    comp.blur = 6;
+    println!("size c {}", comp.deep_size_of());
+    
     // comp.save("out");
     comp.decompress_to_rli().save_inferred("out.png")?;
 

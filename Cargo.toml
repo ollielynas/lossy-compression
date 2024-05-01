@@ -6,12 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+deepsize = "0.2.0"
 fastrand = "2.0.2"
+image-conv = "0.3.0"
 macroquad = "0.4.5"
+photon-rs = "0.3.2"
 ril = {version ="0.10.1", features = ["all"]}
 savefile = {version = "0.16.5", features = ["bzip2"]}
 savefile-derive = "0.16.5"
 
 
-[profile.dev.packages."*"]
-opt-level = 3
+# [profile.dev.packages."*"]
+# opt-level = 3
